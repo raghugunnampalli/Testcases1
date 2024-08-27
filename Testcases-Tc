@@ -1,0 +1,156 @@
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Xunit;
+
+public class PatientBatchLookupTests
+{
+    private readonly HttpClient _client;
+
+    public PatientBatchLookupTests()
+    {
+        _client = new HttpClient();
+        _client.BaseAddress = new Uri("https://api.yourdomain.com/");
+    }
+
+    private async Task<HttpResponseMessage> PostBatchLookupAsync(object payload)
+    {
+        var jsonContent = JsonConvert.SerializeObject(payload);
+        var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+        return await _client.PostAsync("batchlookup/patient", content);
+    }
+
+    [Fact]
+    public async Task TC001_SuccessfulBatchLookup_Returns200()
+    {
+        var payload = new
+        {
+            patientID = "12345",
+            practiceID = "67890",
+            firstName = "John",
+            lastName = "Doe",
+            dob = "1980-01-01"
+        };
+
+        var response = await PostBatchLookupAsync(payload);
+
+        Assert.Equal(200, (int)response.StatusCode);
+        var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+        Assert.Equal("John", responseData["firstName"]);
+    }
+
+    [Fact]
+    public async Task TC002_PartialDataLookup_Returns200()
+    {
+        var payload = new
+        {
+            patientID = "12345",
+            practiceID = "67890"
+        };
+
+        var response = await PostBatchLookupAsync(payload);
+
+        Assert.Equal(200, (int)response.StatusCode);
+        var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+        Assert.Contains("patientID", responseData.Keys);
+    }
+
+    [Fact]
+    public async Task TC004_InvalidDOBFormat_Returns400()
+    {
+        var payload = new
+        {
+            patientID = "12345",
+            practiceID = "67890",
+            firstName = "John",
+            lastName = "Doe",
+            dob = "01-01-1980"
+        };
+
+        var response = await PostBatchLookupAsync(payload);
+
+        Assert.Equal(400, (int)response.StatusCode);
+        var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Invalid date format", responseData["message"]);
+    }
+
+    [Fact]
+    public async Task TC005_MissingRequiredFields_Returns400()
+    {
+        var payload = new
+        {
+            firstName = "John",
+            lastName = "Doe"
+        };
+
+        var response = await PostBatchLookupAsync(payload);
+
+        Assert.Equal(400, (int)response.StatusCode);
+        var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Required fields are missing", responseData["message"]);
+    }
+
+    [Fact]
+    public async Task TC006_NonExistentPatientData_Returns404()
+    {
+        var payload = new
+        {
+            patientID = "99999",
+            practiceID = "88888",
+            firstName = "Nonexistent",
+            lastName = "Patient",
+            dob = "1900-01-01"
+        };
+
+        var response = await PostBatchLookupAsync(payload);
+
+        Assert.Equal(404, (int)response.StatusCode);
+        var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Patient not found", responseData["message"]);
+    }
+
+    [Fact]
+    public async Task TC008_UnauthorizedAccess_Returns401()
+    {
+        // Assuming that the test case setup does not include an authorization token
+
+        _client.DefaultRequestHeaders.Clear(); // Remove any auth token
+        var payload = new
+        {
+            patientID = "12345",
+            practiceID = "67890",
+            firstName = "John",
+            lastName = "Doe",
+            dob = "1980-01-01"
+        };
+
+        var response = await PostBatchLookupAsync(payload);
+
+        Assert.Equal(401, (int)response.StatusCode);
+        var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Unauthorized", responseData["message"]);
+    }
+
+    [Fact]
+    public async Task TC010_LookupWithSpecialCharactersInNames_Returns200()
+    {
+        var payload = new
+        {
+            patientID = "54321",
+            practiceID = "09876",
+            firstName = "Jean-Luc",
+            lastName = "O'Conner",
+            dob = "1975-05-15"
+        };
+
+        var response = await PostBatchLookupAsync(payload);
+
+        Assert.Equal(200, (int)response.StatusCode);
+        var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Jean-Luc", responseData["firstName"]);
+        Assert.Equal("O'Conner", responseData["lastName"]);
+    }
+}
